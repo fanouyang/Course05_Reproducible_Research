@@ -1,0 +1,117 @@
+---
+title: "storm_data_analysis"
+---
+
+## Synopsis
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.
+
+This project involves exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
+
+Two research questions are: 1. Across the United States, which types of events are most harmful with respect to population health? 2. Across the United States, which types of events have the greatest economic consequences?
+
+Analysis results show that Tornado is the most harmful event in terms of human fatalites and injuries;Floods have the greatest economic consequences.
+
+## Loading and Processing the Raw Data
+The data are downloaded from NOAA Storm Database
+```{r}
+if (!file.exists('./storm_data')) {dir.create('./storm_data') }
+if (!file.exists("storm_data/repdata-data-StormData.csv.bz2")) {
+  download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", destfile="storm_data/repdata-data-StormData.csv.bz2", mode = "wb",  method = "curl")
+}
+if (!exists('storm_data')) {
+  storm_data <- read.csv("storm_data/repdata-data-StormData.csv.bz2")
+}
+
+```
+
+## summary of data and its structure
+```{r}
+str(storm_data)
+summary(storm_data)
+```
+
+## data processing and cleaning, creating subset including relevant columns (variables) and rows (data)
+
+```{r}
+library(dplyr)
+storm_subset=select(storm_data, EVTYPE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP)
+# subset data for Question 1
+eventHealth <- subset(storm_subset, !storm_subset$FATALITIES == 0 & !storm_subset$INJURIES == 
+    0, select = c(EVTYPE, FATALITIES, INJURIES))
+# subset data for Question 2
+eventEconomic <- subset(storm_subset, !storm_subset$PROPDMG == 0 & !storm_subset$CROPDMG == 
+    0, select = c(EVTYPE, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP))
+```
+
+## RQ1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health? 
+
+First, I calculate total number of FATALITIES and INJURIES frequency grouped by event types; then I select the top 5 events causing death and injuries; finally plot the top 5 major cause for fatalities and injuriees respectively. The resuts revealed that tornadoe is the most dangerous weather event to the populations health.
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+# calculate sum of FATALITIES and INJURIES grouped by EVTYPE
+event_death=eventHealth %>% group_by(EVTYPE) %>%
+  summarise(sum_death = sum(FATALITIES, na.rm = TRUE))
+colnames(event_death) <- c("EVENTTYPE", "FATALITIES") 
+event_inj=eventHealth %>% group_by(EVTYPE) %>%
+  summarise(sum_inj = sum(INJURIES, na.rm = TRUE))
+colnames(event_inj) = c("EVENTTYPE", "INJURIES")
+#reorder dataset and filter top 5 events 
+event_death <- event_death[order(event_death$FATALITIES, decreasing = TRUE), ][1:5, ]
+event_death
+event_inj <- event_inj[order(event_inj$INJURIES, decreasing = TRUE), ][1:5, ]
+event_inj
+# plot top 5 major cause for fatalities and injuriees respectively
+death_plot=ggplot(data = event_death, aes(x = factor(EVENTTYPE), y = event_death$FATALITIES, fill = EVENTTYPE)) + geom_bar(stat="identity") + coord_flip() + labs(y = "Number of Death", x = "Event type", title = "Top 5 weather events causing fatalities")
+injury_plot=ggplot(data = event_inj, aes(x = factor(EVENTTYPE), y = event_inj$INJURIES, fill = EVENTTYPE)) + geom_bar(stat="identity") + coord_flip() + labs(y = "Number of Injuries", x = "Event type", title = "Top 5 weather events causing injuries")
+grid.arrange(death_plot, injury_plot, nrow = 2)
+```
+
+## RQ2. Across the United States, which types of events have the greatest economic consequences? 
+I first did data Processing, then plot the dataset out. Results showed floods have the greatest economic consequences.
+
+```{r}
+library(stats)
+library(ggplot2)
+eventEconomic$PROPMULT<-1
+eventEconomic$PROPMULT[eventEconomic$PROPDMGEXP =="H"] <- 100
+eventEconomic$PROPMULT[eventEconomic$PROPDMGEXP =="K"] <- 1000
+eventEconomic$PROPMULT[eventEconomic$PROPDMGEXP =="M"] <- 1000000
+eventEconomic$PROPMULT[eventEconomic$PROPDMGEXP =="B"] <- 1000000000
+
+eventEconomic$CROPMULT<-1
+eventEconomic$CROPMULT[eventEconomic$CROPDMGEXP =="H"] <- 100
+eventEconomic$CROPMULT[eventEconomic$CROPDMGEXP =="K"] <- 1000
+eventEconomic$CROPMULT[eventEconomic$CROPDMGEXP =="M"] <- 1000000
+eventEconomic$CROPMULT[eventEconomic$CROPDMGEXP =="B"] <- 1000000000
+str(eventEconomic)
+
+eventEconomic$PRODMG1 <- eventEconomic$PROPDMG * eventEconomic$PROPMULT
+eventEconomic$CROPDMG1 <- eventEconomic$CROPDMG * eventEconomic$CROPMULT
+
+eventEconomic <- aggregate(cbind(PRODMG1, CROPDMG1) ~ EVTYPE, data=eventEconomic, FUN=sum)
+
+eventEconomic$TOTALDMG <- eventEconomic$PRODMG1 + eventEconomic$CROPDMG1
+
+eventEconomic <- aggregate(eventEconomic$TOTALDMG, by = list(eventEconomic$EVTYPE), 
+    FUN = sum)
+
+colnames(eventEconomic) <- c("EVTYPE", "TOTALDMG")
+
+# Rank the event type by highest damage cost and take top 5 columns
+eventEconomic <- eventEconomic[order(eventEconomic$TOTALDMG, decreasing = TRUE), 
+    ]
+eventEconomic <- eventEconomic[1:5, ]
+
+#plot
+ggplot(data = eventEconomic, aes(x = factor(EVTYPE), y = TOTALDMG, fill =EVTYPE)) + 
+         geom_bar(stat = "identity") + coord_flip() + xlab("Event Type") + ylab("Total Damage")
+
+```
+
+## Results
+
+1. Across the United States, which types of events are most harmful with respect to population health? Analysis results show that Tornado is the most harmful event in terms of human fatalites and injuries
+2. Across the United States, which types of events have the greatest economic consequences? Analysis results show floods have the greatest economic consequences.
